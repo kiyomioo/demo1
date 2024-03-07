@@ -1,7 +1,9 @@
-
 import csv
 import os
+import Levenshtein
+from fuzzywuzzy import fuzz
 from py2neo import Node, Graph
+
 
 class build_kg:
     def __init__(self):
@@ -15,7 +17,7 @@ class build_kg:
         title=[]   # 职位
         salary=[]    # 工资
         education=[]     # 学历
-        keywords=[]   # for every keyword in description
+        keyword =[]   # for every keyword in description
         hiring_manager=[] # 招聘者
         link=[] # 链接
 
@@ -58,10 +60,11 @@ class build_kg:
                     rel_title_edu.append([row['title'], row['education']])
 
                 if 'description' in row and 'company' in row and 'title' in row:
-                    keywords.extend(row['description'].split('、'))
-                    for keyword in row['description'].split('、'):
-                        rel_company_des.append([company_name, keyword])
-                        rel_title_des.append([row['title'], keyword])
+                    keywords = row['description'].split('、')
+                    for kw in keywords:
+                        rel_company_des.append([company_name, kw])
+                        rel_title_des.append([row['title'], kw])
+                        keyword.extend(keywords)
 
                 if 'hiring_manager'in row and 'company' in row and 'title' in row:
                     hiring_manager.append(row['hiring_manager'])
@@ -77,7 +80,7 @@ class build_kg:
                     company_dict['address'] = row['address']
                 company_infos.append(company_dict)
 
-        return set(company), set(title), set(salary), set(education),set(keywords),set(hiring_manager),\
+        return set(company), set(title), set(salary), set(education),set(keyword),set(hiring_manager),\
             set(link),company_infos, rel_company_sa, rel_company_edu, rel_company_hire,rel_company_link,\
             rel_company_des,rel_title_sa,rel_title_edu,rel_title_hire,rel_title_link,rel_title_des,rel_company_title
 
@@ -89,13 +92,9 @@ class build_kg:
         :return: None
         """
         for node_name in nodes:
-            existing_node = self.graph.nodes.match(label, name=node_name).first()
-            if existing_node:
-                self.node_dict[node_name] = existing_node
-            else:
-                node = Node(label, name=node_name)
-                self.graph.create(node)
-                self.node_dict[node_name] = node
+            node = Node(label, name=node_name)
+            self.graph.create(node)
+            self.node_dict[node_name] = node
         return self.node_dict
 
     # 创建 company 节点
@@ -113,7 +112,7 @@ class build_kg:
     # 创建图谱的实体节点
     def create_graph_nodes(self):
         self.graph.delete_all()
-        company, title, salary,education,keywords,hiring_manager,link, company_infos, \
+        company, title, salary,education,keyword,hiring_manager,link, company_infos, \
             rel_company_sa, rel_company_edu, rel_company_hire,rel_company_link,\
             rel_company_des, rel_title_sa, rel_title_edu,rel_title_hire,rel_title_link,rel_title_des,\
             rel_company_title = self.read_nodes()
@@ -126,7 +125,7 @@ class build_kg:
         print('创建学历节点...')
         self.create_node('Education',education)
         print('创建要求节点...')
-        self.create_node('Keyword', keywords)
+        self.create_node('Keyword', keyword)
         print('创建招聘者节点...')
         self.create_node('Manager', hiring_manager)
         print('创建链接节点...')
@@ -152,18 +151,6 @@ class build_kg:
             p = edge[0]
             q = edge[1]
 
-            # 检查起始节点和终点节点是否在已创建的节点字典中，若在则使用已存在的节点，否则创建新节点
-            start_node_existing = self.node_dict.get(p)
-            end_node_existing = self.node_dict.get(q)
-            if not start_node_existing:
-                start_node_existing = Node(start_node, name=p)
-                self.graph.create(start_node_existing)
-                self.node_dict[p] = start_node_existing
-            if not end_node_existing:
-                end_node_existing = Node(end_node, name=q)
-                self.graph.create(end_node_existing)
-                self.node_dict[q] = end_node_existing
-
             query = "MATCH (p:%s), (q:%s) WHERE p.name = '%s' AND q.name = '%s' CREATE (p)-[rel:%s{name:'%s'}]->(q)" % (
                 start_node,end_node,p,q,rel_type,rel_name)
             # match语法，p，q分别为标签，rel_type表示关系类别，rel_name 关系名字
@@ -175,7 +162,7 @@ class build_kg:
 
     # 创建图谱关系
     def create_graph_rels(self):
-        company, title, salary, education, keywords, hiring_manager, link, company_infos, \
+        company, title, salary, education, keyword, hiring_manager, link, company_infos, \
             rel_company_sa, rel_company_edu, rel_company_hire, rel_company_link, \
             rel_company_des, rel_title_sa, rel_title_edu, rel_title_hire, rel_title_link, rel_title_des,\
             rel_company_title = self.read_nodes()
@@ -196,9 +183,34 @@ class build_kg:
         self.create_relationship('Title', 'Manager', rel_title_hire, 'hire', '负责招聘')
         self.create_relationship('Title', 'Link', rel_title_link, 'detail', '查看详情')
 
-if __name__ == '__main__':
-    kg = build_kg()
-    kg.create_graph_nodes()
-    kg.create_graph_rels()
+    def export_data(self):
+            company, title, salary, education, keyword, hiring_manager, link, company_infos, \
+                rel_company_sa, rel_company_edu, rel_company_hire, rel_company_link, \
+                rel_company_des, rel_title_sa, rel_title_edu, rel_title_hire, rel_title_link, rel_title_des, \
+                rel_company_title = self.read_nodes()
+            f_company = open('data/company.txt', 'w+')
+            f_title = open('data/title.txt', 'w+')
+            f_salary = open('data/salary.txt', 'w+')
+            f_education = open('data/education.txt', 'w+')
+            f_keyword = open('data/keyword.txt', 'w+')
+            f_hiring_manager = open('data/hiring_manager.txt', 'w+')
 
-   
+            f_company.write('\n'.join(list(company)))
+            f_title.write('\n'.join(list(title)))
+            f_salary.write('\n'.join(list(salary)))
+            f_education.write('\n'.join(list(education)))
+            f_keyword.write('\n'.join(list(keyword)))
+            f_hiring_manager.write('\n'.join(list(hiring_manager)))
+
+            f_company.close()
+            f_title.close()
+            f_salary.close()
+            f_education.close()
+            f_keyword.close()
+            f_hiring_manager.close()
+            return
+
+
+
+
+
